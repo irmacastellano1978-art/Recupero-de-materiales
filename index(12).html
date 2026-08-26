@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Recupero de Materiales</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  .font-mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+</style>
+</head>
+<body class="bg-[#F2F1ED]">
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ---------- Iconos (SVG minimalistas, sin dependencias externas) ----------
+const Icon = ({ path, size = 16, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d={path} />
+  </svg>
+);
+const IconPlus = (p) => <Icon {...p} path="M12 5v14M5 12h14" />;
+const IconTrash = (p) => <Icon {...p} path="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />;
+const IconPencil = (p) => <Icon {...p} path="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />;
+const IconX = (p) => <Icon {...p} path="M18 6 6 18M6 6l12 12" />;
+const IconSearch = (p) => <Icon {...p} path="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM21 21l-4.35-4.35" />;
+const IconClipboard = (p) => <Icon {...p} path="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 12h6M9 16h6" />;
+const IconUsers = (p) => <Icon {...p} path="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />;
+const IconPackage = (p) => <Icon {...p} path="M21 8 12 3 3 8l9 5 9-5ZM3 8v8l9 5 9-5V8M12 13v8" />;
+const IconBar = (p) => <Icon {...p} path="M12 20V10M18 20V4M6 20v-4" />;
+const IconCalendar = (p) => <Icon {...p} path="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />;
+const IconRadio = (p) => <Icon {...p} path="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M19.1 4.9c3.9 3.9 3.9 10.2 0 14.2M7.8 16.2a5 5 0 0 1 0-8.4M16.2 7.8a5 5 0 0 1 0 8.4M12 12h.01" />;
+const IconCheck = (p) => <Icon {...p} path="M20 6 9 17l-5-5" />;
+const IconAlert = (p) => <Icon {...p} path="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />;
+const IconDownload = (p) => <Icon {...p} path="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />;
+const IconLock = (p) => <Icon {...p} path="M6 10V7a6 6 0 0 1 12 0v3M5 10h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1ZM12 15v2" />;
+const IconLogout = (p) => <Icon {...p} path="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />;
+
+// ---------- Storage compartido (Firebase Firestore) ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyCjPetku_Q4LGy35UCLNb1KlHZWz77baRA",
+  authDomain: "recupero-de-materiales.firebaseapp.com",
+  projectId: "recupero-de-materiales",
+  storageBucket: "recupero-de-materiales.firebasestorage.app",
+  messagingSenderId: "158941795306",
+  appId: "1:158941795306:web:6592097cc441ec9a0ad893",
+  measurementId: "G-RZDVMFZ6VV",
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const storage = {
+  get: async (key) => {
+    const doc = await db.collection("recupero").doc(key).get();
+    return doc.exists ? doc.data().value : null;
+  },
+  set: async (key, value) => {
+    await db.collection("recupero").doc(key).set({ value });
+  },
+};
+
+// ---------- Sesión de login: local en cada dispositivo ----------
+const localSesion = {
+  get: () => localStorage.getItem("recupero:sesion"),
+  set: (v) => (v ? localStorage.setItem("recupero:sesion", v) : localStorage.removeItem("recupero:sesion")),
+};
+
+// ---------- Constantes de dominio ----------
+const MOTIVOS = ["Baja de servicio", "Traslado", "Robo/Hurto", "Falla técnica", "Reemplazo de equipo", "Otro"];
+const ESTADOS = ["Bueno", "Dañado", "Faltante", "Incompleto"];
+const SI_NO = ["Sí", "No"];
+
+const DEFAULT_TECNICOS = ["Técnico 1", "Técnico 2", "Técnico 3", "Técnico 4", "Técnico 5"];
+const DEFAULT_USUARIOS = [
+  { id: "u-0", nombre: "Administrador", usuario: "admin", password: "admin123" },
+];
+const DEFAULT_ELEMENTOS = [
+  ["Panel / Central de alarma", 3000], ["Teclado", 1500], ["Sensor de movimiento (PIR)", 1000],
+  ["Sensor magnético (puerta/ventana)", 800], ["Sensor de rotura de vidrio", 1000], ["Sirena interior", 1200],
+  ["Sirena exterior", 1500], ["Comunicador GSM", 2000], ["Comunicador IP/Ethernet", 2000],
+  ["Batería de backup", 600], ["Fuente de alimentación / Transformador", 1500], ["Botón de pánico", 800],
+  ["Detector de humo", 1500], ["Cableado", 300], ["Gabinete / Caja metálica", 500],
+  ["Control remoto", 500], ["Cámara", 2500], ["Otro", 500],
+].map(([nombre, comision], i) => ({ id: "el-" + i, nombre, comision }));
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const money = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n || 0);
+
+function getMonday(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function fmtShort(d) { return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }); }
+function fmtLong(dateStr) {
+  if (!dateStr) return "—";
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+// ---------- Exportar a Excel ----------
+function exportRegistrosToExcel(registros, elementos) {
+  if (!registros.length) return;
+  const rows = [];
+  registros.forEach((r) => {
+    (r.items || []).forEach((item) => {
+      const comisionUnit = elementos.find((e) => e.nombre === item.elemento)?.comision || 0;
+      const cantidad = Number(item.cantidad) || 0;
+      rows.push({
+        "Fecha": fmtLong(r.fecha),
+        "Técnico": r.tecnico || "",
+        "Cliente": r.cliente || "",
+        "N° Cliente / Contrato": r.contrato || "",
+        "Dirección": r.direccion || "",
+        "Localidad": r.localidad || "",
+        "Motivo": r.motivo || "",
+        "Elemento": item.elemento || "",
+        "Cantidad": cantidad,
+        "Estado": item.estado || "",
+        "N° Serie / IMEI": item.serie || "",
+        "Comisión unitaria": comisionUnit,
+        "Comisión total": comisionUnit * cantidad,
+        "Devuelto a depósito": r.devuelto || "",
+        "Observaciones": r.observaciones || "",
+      });
+    });
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 11 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 22 }, { wch: 16 },
+    { wch: 16 }, { wch: 26 }, { wch: 9 }, { wch: 11 }, { wch: 16 }, { wch: 14 },
+    { wch: 13 }, { wch: 16 }, { wch: 28 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Recupero de Materiales");
+  XLSX.writeFile(wb, `recupero-materiales-${todayISO()}.xlsx`);
+}
+
+const NAV = [
+  { key: "registro", label: "Registro", zone: "Z1", icon: IconClipboard },
+  { key: "semanal", label: "Reporte semanal", zone: "Z2", icon: IconCalendar },
+  { key: "resumen", label: "Resumen", zone: "Z3", icon: IconBar },
+  { key: "tecnicos", label: "Técnicos", zone: "Z4", icon: IconUsers },
+  { key: "elementos", label: "Elementos", zone: "Z5", icon: IconPackage },
+  { key: "usuarios", label: "Usuarios", zone: "Z6", icon: IconLock },
+];
+
+const emptyItem = () => ({ id: uid(), elemento: "", cantidad: 1, estado: "", serie: "" });
+
+const emptyForm = () => ({
+  id: null, fecha: todayISO(), tecnico: "", cliente: "", contrato: "", direccion: "",
+  localidad: "", motivo: "", items: [emptyItem()],
+  devuelto: "Sí", observaciones: "",
+});
+
+const normalizeRegistro = (r) => {
+  if (Array.isArray(r.items)) return { ...r, items: r.items.length ? r.items : [emptyItem()] };
+  return {
+    ...r,
+    items: [{
+      id: uid(),
+      elemento: r.elemento || "",
+      cantidad: Number(r.cantidad) || 1,
+      estado: r.estado || "",
+      serie: r.serie || "",
+    }],
+  };
+};
+
+function App() {
+  const [tab, setTab] = useState("registro");
+  const [registros, setRegistros] = useState([]);
+  const [tecnicos, setTecnicos] = useState([]);
+  const [elementos, setElementos] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [sesion, setSesion] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState("idle");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [r, t, e, u] = await Promise.all([
+          storage.get("registros"),
+          storage.get("tecnicos"),
+          storage.get("elementos"),
+          storage.get("usuarios"),
+        ]);
+        const usuariosFinal = u || DEFAULT_USUARIOS;
+        setRegistros((r || []).map(normalizeRegistro));
+        setTecnicos(t || DEFAULT_TECNICOS);
+        setElementos(e || DEFAULT_ELEMENTOS);
+        setUsuarios(usuariosFinal);
+        const s = localSesion.get();
+        if (s && usuariosFinal.some((x) => x.usuario === s)) setSesion(s);
+      } catch (err) {
+        console.error("Error cargando datos:", err);
+        setTecnicos(DEFAULT_TECNICOS);
+        setElementos(DEFAULT_ELEMENTOS);
+        setUsuarios(DEFAULT_USUARIOS);
+      } finally {
+        setLoaded(true);
+      }
+    })();
+  }, []);
+
+  const persist = useCallback((key, value) => {
+    setSaveState("saving");
+    storage
+      .set(key, value)
+      .then(() => {
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1200);
+      })
+      .catch((err) => {
+        console.error("Error guardando:", err);
+        setSaveState("idle");
+      });
+  }, []);
+
+  useEffect(() => { if (loaded) persist("registros", registros); }, [registros, loaded, persist]);
+  useEffect(() => { if (loaded) persist("tecnicos", tecnicos); }, [tecnicos, loaded, persist]);
+  useEffect(() => { if (loaded) persist("elementos", elementos); }, [elementos, loaded, persist]);
+  useEffect(() => { if (loaded) persist("usuarios", usuarios); }, [usuarios, loaded, persist]);
+
+  const login = useCallback((usuario, password) => {
+    const u = (usuario || "").trim().toLowerCase();
+    const found = usuarios.find((x) => x.usuario.toLowerCase() === u && x.password === password);
+    if (!found) return false;
+    setSesion(found.usuario);
+    localSesion.set(found.usuario);
+    return true;
+  }, [usuarios]);
+
+  const logout = useCallback(() => {
+    persist("registros", registros);
+    persist("tecnicos", tecnicos);
+    persist("elementos", elementos);
+    persist("usuarios", usuarios);
+    setSesion(null);
+    localSesion.set(null);
+  }, [registros, tecnicos, elementos, usuarios, persist]);
+
+  const usuarioActual = usuarios.find((u) => u.usuario === sesion) || null;
+
+  const comisionUnitaria = useCallback(
+    (nombreElemento) => elementos.find((e) => e.nombre === nombreElemento)?.comision || 0,
+    [elementos]
+  );
+  const comisionDe = useCallback(
+    (reg) => (reg.items || []).reduce(
+      (total, item) => total + (Number(item.cantidad) || 0) * comisionUnitaria(item.elemento),
+      0
+    ),
+    [comisionUnitaria]
+  );
+
+  if (!loaded) {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-[#6B7280]">Cargando panel…</div>;
+  }
+
+  if (!sesion) {
+    return <LoginScreen usuarios={usuarios} onLogin={login} />;
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col text-[#1B1E24]">
+      <div className="w-full bg-[#15181F] flex items-center justify-between gap-3 px-4 md:px-6 py-2.5 shrink-0">
+        <span className="text-[12px] text-[#9BA3B4]">
+          Conectado como <span className="text-white font-medium">{usuarioActual?.nombre || usuarioActual?.usuario}</span>
+        </span>
+        <button onClick={logout}
+          className="flex items-center gap-1.5 text-[12.5px] font-medium bg-[#B23B3B] text-white px-3 py-1.5 rounded-md hover:bg-[#9A3232] transition-colors shrink-0">
+          <IconLogout size={14} /> Cerrar sesión y guardar
+        </button>
+      </div>
+      <div className="flex flex-1 min-h-0">
+        <Sidebar tab={tab} setTab={setTab} count={registros.length} saveState={saveState} />
+        <main className="flex-1 min-w-0 p-5 md:p-8 overflow-y-auto">
+          {tab === "registro" && (
+            <RegistroTab registros={registros} setRegistros={setRegistros} tecnicos={tecnicos} elementos={elementos} comisionDe={comisionDe} />
+          )}
+          {tab === "semanal" && <SemanalTab registros={registros} tecnicos={tecnicos} comisionDe={comisionDe} />}
+          {tab === "resumen" && <ResumenTab registros={registros} tecnicos={tecnicos} elementos={elementos} comisionDe={comisionDe} />}
+          {tab === "tecnicos" && <TecnicosTab tecnicos={tecnicos} setTecnicos={setTecnicos} registros={registros} />}
+          {tab === "elementos" && <ElementosTab elementos={elementos} setElementos={setElementos} registros={registros} />}
+          {tab === "usuarios" && <UsuariosTab usuarios={usuarios} setUsuarios={setUsuarios} usuarioActual={usuarioActual} />}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({ tab, setTab, count, saveState }) {
+  return (
+    <aside className="w-[220px] shrink-0 bg-[#15181F] text-[#9BA3B4] flex flex-col max-md:w-full max-md:min-h-0">
+      <div className="px-5 pt-6 pb-5 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E8A33D] opacity-60"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#E8A33D]"></span>
+          </span>
+          <span className="text-[11px] tracking-[0.18em] uppercase text-[#6B7280]">Sistema activo</span>
+        </div>
+        <h1 className="mt-2 text-[15px] font-semibold text-white leading-snug">Recupero de<br/>Materiales</h1>
+        <p className="mt-1 text-[11px] text-[#6B7280]">Alarmas monitoreadas</p>
+      </div>
+      <nav className="flex-1 py-3 max-md:flex max-md:overflow-x-auto">
+        {NAV.map(({ key, label, zone, icon: Ico }) => {
+          const active = tab === key;
+          return (
+            <button key={key} onClick={() => setTab(key)}
+              className={"w-full flex items-center gap-3 px-5 py-3 text-[13px] transition-colors border-l-2 " +
+                (active ? "bg-white/[0.06] text-white border-[#E8A33D]" : "border-transparent hover:bg-white/[0.04] hover:text-[#D5D9E0]")}>
+              <span className={"font-mono text-[10px] w-6 shrink-0 " + (active ? "text-[#E8A33D]" : "text-[#4B5262]")}>{zone}</span>
+              <Ico size={15} className="shrink-0" />
+              <span className="truncate">{label}</span>
+            </button>
+          );
+        })}
+      </nav>
+      <div className="px-5 py-4 border-t border-white/10 text-[11px] text-[#6B7280] flex items-center justify-between">
+        <span>{count} registro{count === 1 ? "" : "s"}</span>
+        <span className={"flex items-center gap-1 " + (saveState === "saved" ? "text-[#4C9A6A]" : "")}>
+          {saveState === "saving" && "Guardando…"}
+          {saveState === "saved" && <><IconCheck size={12} /> Guardado</>}
+        </span>
+      </div>
+    </aside>
+  );
+}
+
+function RegistroTab({ registros, setRegistros, tecnicos, elementos, comisionDe }) {
+  const [query, setQuery] = useState("");
+  const [filterTecnico, setFilterTecnico] = useState("");
+  const [modal, setModal] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const filtered = useMemo(() => {
+    return registros.filter((r) => {
+      const q = query.trim().toLowerCase();
+      const itemsText = (r.items || []).map((i) => i.elemento).join(" ").toLowerCase();
+      const seriesText = (r.items || []).map((i) => i.serie || "").join(" ").toLowerCase();
+      const matchesQuery = !q || [r.cliente, r.contrato, r.direccion, r.localidad, itemsText, seriesText]
+        .some((f) => (f || "").toLowerCase().includes(q));
+      return matchesQuery && (!filterTecnico || r.tecnico === filterTecnico);
+    }).sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+  }, [registros, query, filterTecnico]);
+
+  const openNew = () => setModal(emptyForm());
+  const openEdit = (r) => setModal(normalizeRegistro({ ...r, items: (r.items || []).map(i => ({ ...i })) }));
+
+  const save = (form) => {
+    const items = (form.items || []).filter((i) => i.elemento);
+    if (!form.tecnico || !form.cliente || !form.motivo || !items.length) return;
+    if (items.some((i) => !i.estado || Number(i.cantidad) < 1)) return;
+
+    const normalized = {
+      ...form,
+      items: items.map((i) => ({ ...i, cantidad: Math.max(1, Number(i.cantidad) || 1) })),
+      elemento: items.map(i => i.elemento).join(", "),
+      cantidad: items.reduce((s, i) => s + (Number(i.cantidad) || 0), 0),
+      estado: items.length === 1 ? items[0].estado : "Varios",
+      serie: items.length === 1 ? items[0].serie : "",
+    };
+
+    if (form.id) setRegistros((prev) => prev.map((r) => r.id === form.id ? normalized : r));
+    else setRegistros((prev) => [...prev, { ...normalized, id: uid() }]);
+    setModal(null);
+  };
+
+  const remove = (id) => {
+    setRegistros((prev) => prev.filter((r) => r.id !== id));
+    setConfirmDelete(null);
+  };
+
+  return (
+    <div>
+      <TabHeader title="Registro" subtitle="Una recuperación puede contener varios elementos."
+        action={
+          <div className="flex items-center gap-2">
+            <button onClick={() => exportRegistrosToExcel(filtered, elementos)} disabled={!filtered.length}
+              className="flex items-center gap-1.5 bg-white border border-[#E4E3DF] text-[#1B1E24] text-[13px] px-3.5 py-2 rounded-md hover:bg-[#F7F6F3] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              <IconDownload size={15} /> Exportar a Excel
+            </button>
+            <button onClick={openNew} className="flex items-center gap-1.5 bg-[#15181F] text-white text-[13px] px-3.5 py-2 rounded-md hover:bg-[#22262F] transition-colors">
+              <IconPlus size={15} /> Nueva recuperación
+            </button>
+          </div>
+        } />
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex items-center gap-2 bg-white border border-[#E4E3DF] rounded-md px-3 py-2 flex-1 min-w-[220px]">
+          <IconSearch size={14} className="text-[#9BA3B4]" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar cliente, contrato, dirección, elemento, N° serie…"
+            className="flex-1 text-[13px] outline-none bg-transparent placeholder:text-[#9BA3B4]" />
+        </div>
+        <select value={filterTecnico} onChange={(e) => setFilterTecnico(e.target.value)}
+          className="text-[13px] bg-white border border-[#E4E3DF] rounded-md px-3 py-2 outline-none">
+          <option value="">Todos los técnicos</option>
+          {tecnicos.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-white border border-[#E4E3DF] rounded-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr className="bg-[#F7F6F3] text-[#6B7280] text-left border-b border-[#E4E3DF]">
+                {["Fecha", "Técnico", "Cliente", "Localidad", "Motivo", "Elementos recuperados", "Cant.", "Comisión", ""].map((h) => (
+                  <th key={h} className="px-3 py-2.5 font-medium whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-[#9BA3B4]">
+                  {registros.length === 0 ? "Todavía no hay recuperaciones. Cargá la primera." : "Nada coincide con la búsqueda."}
+                </td></tr>
+              )}
+              {filtered.map((r) => {
+                const items = r.items || [];
+                const totalQty = items.reduce((s, i) => s + (Number(i.cantidad) || 0), 0);
+                return (
+                  <tr key={r.id} className="border-b border-[#EFEEEA] last:border-0 hover:bg-[#FAFAF8] group align-top">
+                    <td className="px-3 py-2 font-mono text-[11.5px] whitespace-nowrap">{fmtLong(r.fecha)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.tecnico}</td>
+                    <td className="px-3 py-2">{r.cliente}<div className="text-[11px] text-[#9BA3B4] font-mono">{r.contrato}</div></td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.localidad}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.motivo}</td>
+                    <td className="px-3 py-2 min-w-[230px]">
+                      <div className="space-y-1">
+                        {items.map((i) => (
+                          <div key={i.id} className="flex items-center gap-2">
+                            <span className="font-medium">{i.elemento}</span>
+                            <span className="font-mono text-[10.5px] text-[#6B7280]">×{i.cantidad}</span>
+                            <span className={"px-1.5 py-0.5 rounded text-[10px] font-medium " + estadoColor(i.estado)}>{i.estado}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-center">{totalQty}</td>
+                    <td className="px-3 py-2 font-mono whitespace-nowrap">{money(comisionDe(r))}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(r)} className="p-1 text-[#6B7280] hover:text-[#15181F]"><IconPencil size={13} /></button>
+                        <button onClick={() => setConfirmDelete(r.id)} className="p-1 text-[#6B7280] hover:text-[#B23B3B]"><IconTrash size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {modal && <RegistroModal form={modal} setForm={setModal} tecnicos={tecnicos} elementos={elementos} onSave={save} onClose={() => setModal(null)} />}
+      {confirmDelete && <ConfirmDialog message="¿Eliminar esta recuperación? No se puede deshacer." onConfirm={() => remove(confirmDelete)} onCancel={() => setConfirmDelete(null)} />}
+    </div>
+  );
+}
+
+function estadoColor(estado) {
+  switch (estado) {
+    case "Bueno": return "bg-[#E7F3EB] text-[#3A7A52]";
+    case "Dañado": return "bg-[#FBEAEA] text-[#B23B3B]";
+    case "Faltante": return "bg-[#FDF1E3] text-[#B0680F]";
+    case "Incompleto": return "bg-[#FDF6DE] text-[#8A7418]";
+    default: return "bg-[#F0F0EE] text-[#6B7280]";
+  }
+}
+
+function RegistroModal({ form, setForm, tecnicos, elementos, onSave, onClose }) {
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const items = form.items || [];
+  const invalid = !form.tecnico || !form.cliente || !form.motivo ||
+    !items.length || items.some((i) => !i.elemento || !i.estado || Number(i.cantidad) < 1);
+  const inputCls = "w-full text-[13px] border border-[#E4E3DF] rounded-md px-2.5 py-2 outline-none focus:border-[#E8A33D] transition-colors";
+
+  const updateItem = (id, key, value) => {
+    setForm({ ...form, items: items.map((i) => i.id === id ? { ...i, [key]: value } : i) });
+  };
+  const addItem = () => setForm({ ...form, items: [...items, emptyItem()] });
+  const removeItem = (id) => {
+    const next = items.filter((i) => i.id !== id);
+    setForm({ ...form, items: next.length ? next : [emptyItem()] });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E3DF] sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="text-[15px] font-semibold">{form.id ? "Editar recuperación" : "Nueva recuperación"}</h3>
+            <p className="text-[11px] text-[#9BA3B4] mt-0.5">Podés cargar varios elementos en una sola recuperación.</p>
+          </div>
+          <button onClick={onClose} className="text-[#9BA3B4] hover:text-[#1B1E24]"><IconX size={18} /></button>
+        </div>
+
+        <div className="p-5 grid grid-cols-2 gap-4">
+          <Field label="Fecha *"><input type="date" value={form.fecha} onChange={set("fecha")} className={inputCls} /></Field>
+          <Field label="Técnico *">
+            <select value={form.tecnico} onChange={set("tecnico")} className={inputCls}>
+              <option value="">Seleccionar…</option>
+              {tecnicos.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Cliente *"><input value={form.cliente} onChange={set("cliente")} className={inputCls} placeholder="Nombre del cliente" /></Field>
+          <Field label="N° Cliente / Contrato"><input value={form.contrato} onChange={set("contrato")} className={inputCls} /></Field>
+          <Field label="Dirección"><input value={form.direccion} onChange={set("direccion")} className={inputCls} /></Field>
+          <Field label="Localidad"><input value={form.localidad} onChange={set("localidad")} className={inputCls} /></Field>
+          <Field label="Motivo de recupero *">
+            <select value={form.motivo} onChange={set("motivo")} className={inputCls}>
+              <option value="">Seleccionar…</option>
+              {MOTIVOS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+          <Field label="Devuelto a depósito">
+            <select value={form.devuelto} onChange={set("devuelto")} className={inputCls}>
+              {SI_NO.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+
+          <div className="col-span-2">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <label className="block text-[11px] text-[#6B7280]">Materiales recuperados *</label>
+                <p className="text-[10.5px] text-[#9BA3B4]">Agregá cada elemento, su cantidad, estado y serie.</p>
+              </div>
+              <button onClick={addItem} type="button" className="flex items-center gap-1.5 bg-[#15181F] text-white text-[12px] px-3 py-2 rounded-md hover:bg-[#22262F]">
+                <IconPlus size={14} /> Agregar material
+              </button>
+            </div>
+
+            <div className="border border-[#E4E3DF] rounded-lg overflow-hidden">
+              <div className="hidden md:grid grid-cols-[minmax(220px,1fr)_90px_150px_minmax(130px,0.7fr)_38px] gap-2 px-3 py-2 bg-[#F7F6F3] text-[10.5px] text-[#6B7280] font-medium">
+                <div>Elemento</div><div>Cantidad</div><div>Estado</div><div>N° Serie / IMEI</div><div></div>
+              </div>
+              <div className="divide-y divide-[#EFEEEA]">
+                {items.map((item, index) => (
+                  <div key={item.id} className="p-3 grid grid-cols-1 md:grid-cols-[minmax(220px,1fr)_90px_150px_minmax(130px,0.7fr)_38px] gap-2 items-end">
+                    <Field label={"Elemento " + (index + 1) + " *"}>
+                      <select value={item.elemento} onChange={(e) => updateItem(item.id, "elemento", e.target.value)} className={inputCls}>
+                        <option value="">Seleccionar…</option>
+                        {elementos.map((e) => <option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Cantidad *">
+                      <input type="number" min={1} value={item.cantidad} onChange={(e) => updateItem(item.id, "cantidad", e.target.value)} className={inputCls} />
+                    </Field>
+                    <Field label="Estado *">
+                      <select value={item.estado} onChange={(e) => updateItem(item.id, "estado", e.target.value)} className={inputCls}>
+                        <option value="">Seleccionar…</option>
+                        {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="N° Serie / IMEI">
+                      <input value={item.serie} onChange={(e) => updateItem(item.id, "serie", e.target.value)} className={inputCls + " font-mono"} placeholder="Opcional" />
+                    </Field>
+                    <button onClick={() => removeItem(item.id)} type="button" disabled={items.length === 1}
+                      className="p-2 mb-0.5 text-[#9BA3B4] hover:text-[#B23B3B] disabled:opacity-20 disabled:cursor-not-allowed" title="Quitar material">
+                      <IconTrash size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <Field label="Observaciones" full>
+            <textarea value={form.observaciones} onChange={set("observaciones")} className={inputCls + " min-h-[70px] resize-none"} />
+          </Field>
+        </div>
+
+        <div className="px-5 py-4 border-t border-[#E4E3DF] flex items-center justify-between sticky bottom-0 bg-white z-10">
+          <span className="text-[11.5px] text-[#9BA3B4] flex items-center gap-1">
+            {invalid && <><IconAlert size={13} /> Completá técnico, cliente, motivo y todos los materiales.</>}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3.5 py-2 text-[13px] rounded-md border border-[#E4E3DF] hover:bg-[#F7F6F3]">Cancelar</button>
+            <button disabled={invalid} onClick={() => onSave(form)}
+              className="px-3.5 py-2 text-[13px] rounded-md bg-[#15181F] text-white hover:bg-[#22262F] disabled:opacity-40 disabled:cursor-not-allowed">
+              Guardar recuperación
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children, full }) {
+  return <div className={full ? "col-span-2" : ""}><label className="block text-[11px] text-[#6B7280] mb-1">{label}</label>{children}</div>;
+}
+
+function ConfirmDialog({ message, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onCancel}>
+      <div className="bg-white rounded-lg w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-[13.5px] text-[#1B1E24] mb-4">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} className="px-3.5 py-2 text-[13px] rounded-md border border-[#E4E3DF] hover:bg-[#F7F6F3]">Cancelar</button>
+          <button onClick={onConfirm} className="px-3.5 py-2 text-[13px] rounded-md bg-[#B23B3B] text-white hover:bg-[#9A3232]">Eliminar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SemanalTab({ registros, tecnicos, comisionDe }) {
+  const semanas = useMemo(() => {
+    const map = new Map();
+    for (const r of registros) {
+      if (!r.fecha) continue;
+      const monday = getMonday(r.fecha);
+      const key = monday.toISOString().slice(0, 10);
+      if (!map.has(key)) map.set(key, { monday, cantidad: 0, comision: 0, porTecnico: {} });
+      const bucket = map.get(key);
+      const cant = (r.items || []).reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+      bucket.cantidad += cant;
+      bucket.comision += comisionDe(r);
+      bucket.porTecnico[r.tecnico] = (bucket.porTecnico[r.tecnico] || 0) + cant;
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [registros, comisionDe]);
+
+  return (
+    <div>
+      <TabHeader title="Reporte semanal" subtitle="Agrupado automáticamente por semana (lunes a domingo) según la fecha del registro." />
+      {semanas.length === 0 ? (
+        <EmptyState text="No hay registros todavía. El reporte se arma solo apenas cargues datos en Registro." />
+      ) : (
+        <div className="space-y-3">
+          {semanas.map(([key, s]) => (
+            <div key={key} className="bg-white border border-[#E4E3DF] rounded-lg p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="font-mono text-[13px] text-[#1B1E24]">{fmtShort(s.monday)} — {fmtShort(addDays(s.monday, 6))}</div>
+                <div className="flex gap-4 text-[13px]">
+                  <span className="text-[#6B7280]">Cantidad: <span className="font-mono text-[#1B1E24]">{s.cantidad}</span></span>
+                  <span className="text-[#6B7280]">Comisión: <span className="font-mono text-[#1B1E24] font-medium">{money(s.comision)}</span></span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {tecnicos.filter((t) => s.porTecnico[t]).map((t) => (
+                  <span key={t} className="text-[11.5px] bg-[#F7F6F3] border border-[#E4E3DF] rounded px-2 py-1">{t}: <span className="font-mono">{s.porTecnico[t]}</span></span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResumenTab({ registros, tecnicos, elementos, comisionDe }) {
+  const porTecnico = useMemo(() => {
+    const m = Object.fromEntries(tecnicos.map((t) => [t, { cantidad: 0, comision: 0 }]));
+    for (const r of registros) {
+      if (!m[r.tecnico]) m[r.tecnico] = { cantidad: 0, comision: 0 };
+      m[r.tecnico].cantidad += Number(r.cantidad) || 0;
+      m[r.tecnico].comision += comisionDe(r);
+    }
+    return m;
+  }, [registros, tecnicos, comisionDe]);
+
+  const porElemento = useMemo(() => {
+    const m = Object.fromEntries(elementos.map((e) => [e.nombre, { cantidad: 0, comision: 0 }]));
+    for (const r of registros) {
+      for (const item of (r.items || [])) {
+        if (!m[item.elemento]) m[item.elemento] = { cantidad: 0, comision: 0 };
+        const qty = Number(item.cantidad) || 0;
+        const unit = elementos.find((e) => e.nombre === item.elemento)?.comision || 0;
+        m[item.elemento].cantidad += qty;
+        m[item.elemento].comision += qty * unit;
+      }
+    }
+    return m;
+  }, [registros, elementos, comisionDe]);
+
+  const totalCantidad = registros.reduce((s, r) => s + (r.items || []).reduce((x, i) => x + (Number(i.cantidad) || 0), 0), 0);
+  const totalComision = registros.reduce((s, r) => s + comisionDe(r), 0);
+
+  return (
+    <div>
+      <TabHeader title="Resumen" subtitle="Totales calculados en vivo a partir de todos los registros cargados." />
+      <div className="grid md:grid-cols-2 gap-4">
+        <SummaryTable title="Por técnico" rows={Object.entries(porTecnico)} totalCantidad={totalCantidad} totalComision={totalComision} />
+        <SummaryTable title="Por elemento" rows={Object.entries(porElemento)} totalCantidad={totalCantidad} totalComision={totalComision} />
+      </div>
+    </div>
+  );
+}
+
+function SummaryTable({ title, rows, totalCantidad, totalComision }) {
+  return (
+    <div className="bg-white border border-[#E4E3DF] rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-[#E4E3DF] text-[13px] font-medium">{title}</div>
+      <table className="w-full text-[12.5px]">
+        <tbody>
+          {rows.map(([name, v]) => (
+            <tr key={name} className="border-b border-[#EFEEEA] last:border-0">
+              <td className="px-4 py-2">{name}</td>
+              <td className="px-4 py-2 font-mono text-right w-20">{v.cantidad}</td>
+              <td className="px-4 py-2 font-mono text-right w-28">{money(v.comision)}</td>
+            </tr>
+          ))}
+          <tr className="bg-[#F7F6F3] font-medium">
+            <td className="px-4 py-2">Total</td>
+            <td className="px-4 py-2 font-mono text-right">{totalCantidad}</td>
+            <td className="px-4 py-2 font-mono text-right">{money(totalComision)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TecnicosTab({ tecnicos, setTecnicos, registros }) {
+  const [nuevo, setNuevo] = useState("");
+  const usados = useMemo(() => new Set(registros.map((r) => r.tecnico)), [registros]);
+
+  const add = () => {
+    const v = nuevo.trim();
+    if (!v || tecnicos.includes(v)) return;
+    setTecnicos([...tecnicos, v]);
+    setNuevo("");
+  };
+  const remove = (t) => setTecnicos(tecnicos.filter((x) => x !== t));
+  const rename = (old, val) => setTecnicos(tecnicos.map((t) => (t === old ? val : t)));
+
+  return (
+    <div className="max-w-lg">
+      <TabHeader title="Técnicos" subtitle="Editá los nombres; se actualizan en el desplegable del Registro." />
+      <div className="bg-white border border-[#E4E3DF] rounded-lg divide-y divide-[#EFEEEA]">
+        {tecnicos.map((t, i) => (
+          <div key={i} className="flex items-center gap-2 px-4 py-2.5">
+            <span className="font-mono text-[11px] text-[#9BA3B4] w-5">{i + 1}</span>
+            <input defaultValue={t} onBlur={(e) => e.target.value.trim() && rename(t, e.target.value.trim())} className="flex-1 text-[13px] outline-none bg-transparent" />
+            {usados.has(t) && <span className="text-[10.5px] text-[#9BA3B4]">en uso</span>}
+            <button onClick={() => remove(t)} className="p-1 text-[#9BA3B4] hover:text-[#B23B3B]"><IconTrash size={13} /></button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nombre del técnico" onKeyDown={(e) => e.key === "Enter" && add()}
+          className="flex-1 text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D]" />
+        <button onClick={add} className="flex items-center gap-1.5 bg-[#15181F] text-white text-[13px] px-3.5 py-2 rounded-md hover:bg-[#22262F]"><IconPlus size={14} /> Agregar</button>
+      </div>
+    </div>
+  );
+}
+
+function ElementosTab({ elementos, setElementos, registros }) {
+  const [nuevo, setNuevo] = useState("");
+  const usados = useMemo(() => new Set(registros.map((r) => r.elemento)), [registros]);
+
+  const add = () => {
+    const v = nuevo.trim();
+    if (!v || elementos.some((e) => e.nombre === v)) return;
+    setElementos([...elementos, { id: uid(), nombre: v, comision: 0 }]);
+    setNuevo("");
+  };
+  const remove = (id) => setElementos(elementos.filter((e) => e.id !== id));
+  const updateComision = (id, val) => setElementos(elementos.map((e) => (e.id === id ? { ...e, comision: Number(val) || 0 } : e)));
+  const updateNombre = (id, val) => setElementos(elementos.map((e) => (e.id === id ? { ...e, nombre: val } : e)));
+
+  return (
+    <div className="max-w-xl">
+      <TabHeader title="Elementos" subtitle="Catálogo y comisión unitaria por elemento recuperado." />
+      <div className="bg-white border border-[#E4E3DF] rounded-lg overflow-hidden">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="bg-[#F7F6F3] text-[#6B7280] text-left border-b border-[#E4E3DF]">
+              <th className="px-4 py-2.5 font-medium">Elemento</th>
+              <th className="px-4 py-2.5 font-medium w-36">Comisión unit.</th>
+              <th className="px-4 py-2.5 w-10"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {elementos.map((e) => (
+              <tr key={e.id} className="border-b border-[#EFEEEA] last:border-0">
+                <td className="px-4 py-2"><input defaultValue={e.nombre} onBlur={(ev) => ev.target.value.trim() && updateNombre(e.id, ev.target.value.trim())} className="w-full outline-none bg-transparent" /></td>
+                <td className="px-4 py-2">
+                  <div className="flex items-center gap-1 font-mono">
+                    $<input type="number" defaultValue={e.comision} onBlur={(ev) => updateComision(e.id, ev.target.value)} className="w-20 outline-none bg-transparent" />
+                  </div>
+                </td>
+                <td className="px-4 py-2">
+                  {!usados.has(e.nombre) && <button onClick={() => remove(e.id)} className="p-1 text-[#9BA3B4] hover:text-[#B23B3B]"><IconTrash size={13} /></button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo elemento" onKeyDown={(e) => e.key === "Enter" && add()}
+          className="flex-1 text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D]" />
+        <button onClick={add} className="flex items-center gap-1.5 bg-[#15181F] text-white text-[13px] px-3.5 py-2 rounded-md hover:bg-[#22262F]"><IconPlus size={14} /> Agregar</button>
+      </div>
+    </div>
+  );
+}
+
+function TabHeader({ title, subtitle, action }) {
+  return (
+    <div className="flex items-start justify-between mb-5 gap-3">
+      <div>
+        <h2 className="text-[19px] font-semibold">{title}</h2>
+        {subtitle && <p className="text-[12.5px] text-[#6B7280] mt-0.5">{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div className="bg-white border border-dashed border-[#D9D8D2] rounded-lg py-14 text-center text-[13px] text-[#9BA3B4] flex flex-col items-center gap-2">
+      <IconRadio size={20} className="text-[#D9D8D2]" />
+      {text}
+    </div>
+  );
+}
+
+function LoginScreen({ usuarios, onLogin }) {
+  const [usuario, setUsuario] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!usuario.trim() || !password) return;
+    const ok = onLogin(usuario, password);
+    if (!ok) {
+      setError("Usuario o contraseña incorrectos.");
+      setPassword("");
+    }
+  };
+
+  const soloDefault = usuarios.length === 1 && usuarios[0].usuario === "admin";
+
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#15181F] p-4">
+      <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-lg p-6 shadow-xl">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E8A33D] opacity-60"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#E8A33D]"></span>
+          </span>
+          <span className="text-[11px] tracking-[0.18em] uppercase text-[#9BA3B4]">Sistema activo</span>
+        </div>
+        <h1 className="text-[19px] font-semibold text-[#1B1E24] mb-1">Recupero de Materiales</h1>
+        <p className="text-[12.5px] text-[#6B7280] mb-5">Ingresá con tu usuario y contraseña.</p>
+
+        <label className="block text-[11px] text-[#6B7280] mb-1">Usuario</label>
+        <input
+          value={usuario}
+          onChange={(e) => { setUsuario(e.target.value); setError(""); }}
+          autoFocus
+          className="w-full text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D] mb-3"
+        />
+
+        <label className="block text-[11px] text-[#6B7280] mb-1">Contraseña</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => { setPassword(e.target.value); setError(""); }}
+          className="w-full text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D] mb-3"
+        />
+
+        {error && (
+          <p className="text-[12px] text-[#B23B3B] mb-3 flex items-center gap-1"><IconAlert size={13} /> {error}</p>
+        )}
+
+        <button type="submit" className="w-full bg-[#15181F] text-white text-[13px] px-3.5 py-2.5 rounded-md hover:bg-[#22262F] transition-colors">
+          Ingresar
+        </button>
+
+        {soloDefault && (
+          <p className="text-[11px] text-[#9BA3B4] mt-4 text-center">
+            Usuario por defecto: <span className="font-mono">admin</span> / <span className="font-mono">admin123</span>. Cambialo desde "Usuarios" apenas ingreses.
+          </p>
+        )}
+      </form>
+    </div>
+  );
+}
+
+function UsuariosTab({ usuarios, setUsuarios, usuarioActual }) {
+  const [nuevo, setNuevo] = useState({ nombre: "", usuario: "", password: "" });
+  const [error, setError] = useState("");
+
+  const add = () => {
+    const nombre = nuevo.nombre.trim();
+    const usuario = nuevo.usuario.trim();
+    const password = nuevo.password.trim();
+    if (!nombre || !usuario || !password) { setError("Completá nombre, usuario y contraseña."); return; }
+    if (usuarios.some((u) => u.usuario.toLowerCase() === usuario.toLowerCase())) {
+      setError("Ese nombre de usuario ya existe.");
+      return;
+    }
+    setUsuarios([...usuarios, { id: uid(), nombre, usuario, password }]);
+    setNuevo({ nombre: "", usuario: "", password: "" });
+    setError("");
+  };
+
+  const remove = (id) => {
+    if (usuarios.length <= 1) return;
+    setUsuarios(usuarios.filter((u) => u.id !== id));
+  };
+
+  const update = (id, key, val) => {
+    if (key === "usuario") {
+      const dup = usuarios.some((u) => u.id !== id && u.usuario.toLowerCase() === val.toLowerCase());
+      if (dup) return;
+    }
+    setUsuarios(usuarios.map((u) => (u.id === id ? { ...u, [key]: val } : u)));
+  };
+
+  return (
+    <div className="max-w-2xl">
+      <TabHeader title="Usuarios" subtitle="Cada técnico ingresa al sistema con su propio usuario y contraseña." />
+      <div className="bg-white border border-[#E4E3DF] rounded-lg overflow-hidden">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="bg-[#F7F6F3] text-[#6B7280] text-left border-b border-[#E4E3DF]">
+              <th className="px-4 py-2.5 font-medium">Nombre</th>
+              <th className="px-4 py-2.5 font-medium">Usuario</th>
+              <th className="px-4 py-2.5 font-medium">Contraseña</th>
+              <th className="px-4 py-2.5 w-10"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {usuarios.map((u) => (
+              <tr key={u.id} className="border-b border-[#EFEEEA] last:border-0">
+                <td className="px-4 py-2">
+                  <input defaultValue={u.nombre} onBlur={(e) => e.target.value.trim() && update(u.id, "nombre", e.target.value.trim())}
+                    className="w-full outline-none bg-transparent" />
+                </td>
+                <td className="px-4 py-2">
+                  <input defaultValue={u.usuario} onBlur={(e) => e.target.value.trim() && update(u.id, "usuario", e.target.value.trim())}
+                    className="w-full outline-none bg-transparent font-mono" />
+                </td>
+                <td className="px-4 py-2">
+                  <input defaultValue={u.password} onBlur={(e) => e.target.value.trim() && update(u.id, "password", e.target.value.trim())}
+                    className="w-full outline-none bg-transparent font-mono" />
+                </td>
+                <td className="px-4 py-2">
+                  {usuarios.length > 1 && u.usuario !== usuarioActual?.usuario && (
+                    <button onClick={() => remove(u.id)} className="p-1 text-[#9BA3B4] hover:text-[#B23B3B]"><IconTrash size={13} /></button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
+        <input value={nuevo.nombre} onChange={(e) => { setNuevo({ ...nuevo, nombre: e.target.value }); setError(""); }} placeholder="Nombre"
+          className="text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D]" />
+        <input value={nuevo.usuario} onChange={(e) => { setNuevo({ ...nuevo, usuario: e.target.value }); setError(""); }} placeholder="Usuario"
+          className="text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D] font-mono" />
+        <input value={nuevo.password} onChange={(e) => { setNuevo({ ...nuevo, password: e.target.value }); setError(""); }} placeholder="Contraseña"
+          className="text-[13px] border border-[#E4E3DF] rounded-md px-3 py-2 outline-none focus:border-[#E8A33D] font-mono" />
+      </div>
+      {error && <p className="text-[12px] text-[#B23B3B] mt-2 flex items-center gap-1"><IconAlert size={13} /> {error}</p>}
+      <button onClick={add} className="flex items-center gap-1.5 bg-[#15181F] text-white text-[13px] px-3.5 py-2 rounded-md hover:bg-[#22262F] mt-2">
+        <IconPlus size={14} /> Agregar usuario
+      </button>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
